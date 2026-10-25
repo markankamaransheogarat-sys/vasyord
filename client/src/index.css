@@ -21,26 +21,30 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+html, body {
+  width: 100%;
+  height: 100%;
+  height: 100dvh;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
   background-color: var(--bg-tertiary);
   color: var(--text-normal);
-  height: 100vh;
-  height: 100dvh;
-  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   user-select: none;
 }
 
 #root {
+  width: 100%;
   height: 100%;
+  height: 100dvh;
   display: flex;
 }
 
-/* Discord Layout Grid */
 .vasyord-app {
   display: flex;
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  height: 100%;
   height: 100dvh;
   position: relative;
   overflow: hidden;
@@ -103,6 +107,7 @@ body {
   font-weight: 700;
   color: var(--text-header);
   box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+  flex-shrink: 0;
 }
 
 .channels-list {
@@ -207,8 +212,10 @@ body {
   flex-direction: column;
   background-color: var(--bg-primary);
   height: 100%;
+  height: 100dvh;
   min-width: 0;
   position: relative;
+  overflow: hidden;
 }
 
 .voice-header {
@@ -220,6 +227,8 @@ body {
   padding: 0 16px;
   font-weight: 600;
   flex-shrink: 0;
+  background-color: var(--bg-primary);
+  z-index: 5;
 }
 
 .stage-content {
@@ -289,7 +298,7 @@ body {
   gap: 4px;
 }
 
-/* Chat Drawer on Right */
+/* Chat Drawer on Right / Fullscreen Telegram style */
 .chat-drawer {
   width: 360px;
   background-color: var(--bg-secondary);
@@ -308,6 +317,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-height: 0;
 }
 
 .message-item {
@@ -409,7 +419,7 @@ body {
   color: var(--text-muted);
 }
 
-/* Chat Input Bar */
+/* Chat Input Bar - Telegram Style */
 .chat-input-box {
   padding: 10px 12px;
   background-color: var(--bg-secondary);
@@ -417,17 +427,22 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .chat-input {
   flex: 1;
-  padding: 10px 12px;
+  padding: 10px 14px;
   background-color: #383a40;
   border: none;
-  border-radius: 8px;
+  border-radius: 20px;
   color: var(--text-header);
-  font-size: 14px;
+  font-size: 15px;
   outline: none;
+}
+
+.chat-input::placeholder {
+  color: var(--text-muted);
 }
 
 .send-btn, .mic-record-btn {
@@ -435,9 +450,9 @@ body {
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  width: 36px;
-  height: 36px;
-  border-radius: 18px;
+  width: 38px;
+  height: 38px;
+  border-radius: 19px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -461,96 +476,6 @@ body {
   100% { transform: scale(1.08); box-shadow: 0 0 0 8px rgba(242, 63, 67, 0); }
 }
 
-/* Mobile Responsiveness & Drawer Toggle */
-.mobile-nav-toggle {
-  display: none;
-  background: transparent;
-  border: none;
-  color: var(--text-header);
-  cursor: pointer;
-  padding: 4px;
-}
-
-.sidebar-overlay {
-  display: none;
-}
-
-@media (max-width: 768px) {
-  .mobile-nav-toggle {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .servers-sidebar {
-    width: 60px;
-  }
-
-  .server-icon {
-    width: 42px;
-    height: 42px;
-    border-radius: 21px;
-    font-size: 13px;
-  }
-
-  /* Channels Sidebar off-canvas on mobile */
-  .channels-sidebar {
-    position: absolute;
-    top: 0;
-    left: 60px;
-    bottom: 0;
-    width: 240px;
-    box-shadow: 4px 0 16px rgba(0,0,0,0.5);
-    transform: translateX(-120%);
-  }
-
-  .channels-sidebar.mobile-open {
-    transform: translateX(0);
-  }
-
-  .sidebar-overlay {
-    display: block;
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.6);
-    z-index: 14;
-  }
-
-  /* Main stage full width */
-  .voice-grid {
-    padding: 10px;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-  }
-
-  .peer-card {
-    min-height: 100px;
-  }
-
-  .peer-avatar {
-    width: 52px;
-    height: 52px;
-  }
-
-  /* Chat drawer full overlay on mobile */
-  .chat-drawer {
-    position: absolute;
-    top: 48px;
-    right: 0;
-    bottom: 0;
-    width: 100%;
-    z-index: 25;
-    background-color: var(--bg-primary);
-  }
-
-  .chat-input-box {
-    padding-bottom: max(12px, env(safe-area-inset-bottom));
-  }
-}
-
 /* Typing Indicator (Telegram style) */
 .typing-indicator {
   display: flex;
@@ -560,6 +485,7 @@ body {
   color: var(--text-muted);
   font-style: italic;
   padding: 4px 14px;
+  flex-shrink: 0;
 }
 
 .typing-dots {
@@ -620,4 +546,115 @@ body {
   padding: 20px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
   border: 1px solid var(--border-subtle);
+}
+
+.mobile-nav-toggle {
+  display: none;
+  background: transparent;
+  border: none;
+  color: var(--text-header);
+  cursor: pointer;
+  padding: 4px;
+}
+
+.sidebar-overlay {
+  display: none;
+}
+
+/* ========================================================
+   📱 МОБИЛЬНЫЙ РЕЖИМ (TELEGRAM / DISCORD MOBILE APP STYLE)
+   ======================================================== */
+@media (max-width: 768px) {
+  .mobile-nav-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Сайдбар серверов на мобилке скрываем по умолчанию для максимального места под контент */
+  .servers-sidebar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 64px;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease-in-out;
+    z-index: 30;
+  }
+
+  .servers-sidebar.mobile-open {
+    transform: translateX(0);
+  }
+
+  .channels-sidebar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 80%;
+    max-width: 300px;
+    box-shadow: 6px 0 24px rgba(0,0,0,0.6);
+    transform: translateX(-100%);
+    transition: transform 0.25s ease-in-out;
+    z-index: 28;
+  }
+
+  .channels-sidebar.mobile-open {
+    transform: translateX(0);
+  }
+
+  .sidebar-overlay {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.75);
+    z-index: 25;
+    backdrop-filter: blur(2px);
+  }
+
+  .main-stage {
+    width: 100vw;
+  }
+
+  .voice-grid {
+    padding: 10px;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .peer-card {
+    min-height: 100px;
+  }
+
+  .peer-avatar {
+    width: 52px;
+    height: 52px;
+  }
+
+  /* Нативный мобильный чат как в Telegram: на весь экран, с плавающим полем ввода */
+  .chat-drawer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100vw;
+    height: 100%;
+    height: 100dvh;
+    z-index: 20;
+    background-color: var(--bg-primary);
+  }
+
+  .chat-input-box {
+    position: sticky;
+    bottom: 0;
+    background-color: var(--bg-secondary);
+    padding: 10px 12px;
+    padding-bottom: max(14px, env(safe-area-inset-bottom));
+    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.3);
+  }
 }
