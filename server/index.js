@@ -138,6 +138,19 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Typing status (as in Telegram)
+  socket.on('user-typing', ({ isTyping }) => {
+    const roomId = socket.roomId;
+    if (roomId && rooms[roomId] && rooms[roomId][socket.id]) {
+      const username = rooms[roomId][socket.id].username;
+      socket.to(roomId).emit('user-typing', {
+        userId: socket.id,
+        username,
+        isTyping,
+      });
+    }
+  });
+
   // Text or Audio Chat Message (Saved permanently to disk)
   socket.on('send-message', ({ text, audioUrl, duration }) => {
     const roomId = socket.roomId;

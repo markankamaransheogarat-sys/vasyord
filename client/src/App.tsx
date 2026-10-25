@@ -110,6 +110,10 @@ export function App() {
   const [recordDuration, setRecordDuration] = useState(0);
   const [currentlyPlayingAudio, setCurrentlyPlayingAudio] = useState<string | null>(null);
 
+  // Typing status (Telegram style)
+  const [typingUsers, setTypingUsers] = useState<{ [userId: string]: string }>({});
+  const typingTimeoutRef = useRef<any>(null);
+
   const socketRef = useRef<Socket | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const peerConnectionsRef = useRef<{ [peerId: string]: RTCPeerConnection }>({});
@@ -304,6 +308,19 @@ export function App() {
       );
     });
 
+    // Listen for typing events (Telegram style)
+    socket.on('user-typing', ({ userId, username, isTyping }) => {
+      setTypingUsers((prev) => {
+        const copy = { ...prev };
+        if (isTyping) {
+          copy[userId] = username;
+        } else {
+          delete copy[userId];
+        }
+        return copy;
+      });
+    });
+
     socket.on('new-message', (msg: Message) => {
       setMessages((prev) => [...prev, msg]);
       setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
@@ -471,10 +488,25 @@ export function App() {
     }
   }
 
+  function handleInputChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setInputText(e.target.value);
+
+    // Notify others that user is typing (Telegram style)
+    if (socketRef.current) {
+      socketRef.current.emit('user-typing', { isTyping: true });
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = setTimeout(() => {
+        socketRef.current?.emit('user-typing', { isTyping: false });
+      }, 2000);
+    }
+  }
+
   function handleSendMessage(e: React.FormEvent) {
     e.preventDefault();
     if (!inputText.trim() || !socketRef.current) return;
     socketRef.current.emit('send-message', { text: inputText });
+    socketRef.current.emit('user-typing', { isTyping: false });
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     setInputText('');
   }
 
@@ -935,6 +967,20 @@ export function App() {
                 <div ref={messagesEndRef} />
               </div>
 
+              {/* Typing notification (Telegram style) */}
+              {Object.keys(typingUsers).length > 0 && (
+                <div className="typing-indicator">
+                  <div className="typing-dots">
+                    <div className="typing-dot" />
+                    <div className="typing-dot" />
+                    <div className="typing-dot" />
+                  </div>
+                  <span>
+                    {Object.values(typingUsers).join(', ')} {Object.keys(typingUsers).length > 1 ? 'печатают...' : 'печатает...'}
+                  </span>
+                </div>
+              )}
+
               {/* Chat Input Box with Voice Recording */}
               <form className="chat-input-box" onSubmit={handleSendMessage}>
                 {isRecordingVoice ? (
@@ -955,7 +1001,7 @@ export function App() {
                     className="chat-input"
                     placeholder={`Сообщение в #${roomId}...`}
                     value={inputText}
-                    onChange={(e) => setInputText(e.target.value)}
+                    onChange={handleInputChange}
                   />
                 )}
 
