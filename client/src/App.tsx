@@ -90,33 +90,35 @@ export function App() {
     setRoomId(targetRoom);
     setMobileSidebarOpen(false);
 
+    let hasMic = false;
     try {
-      // 1. Get microphone stream (works on mobile browsers with HTTPS)
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-        video: false,
-      });
-      localStreamRef.current = stream;
-
-      // Voice Activity Detection (VAD)
-      setupSpeakingDetector(stream);
-
-      // 2. Connect Socket.io signaling
-      const socket = io('/', {
-        transports: ['websocket', 'polling'],
-      });
-      socketRef.current = socket;
-
-      setupSocketEvents(socket, targetRoom);
-      setConnected(true);
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+          video: false,
+        });
+        localStreamRef.current = stream;
+        setupSpeakingDetector(stream);
+        hasMic = true;
+      }
     } catch (err: any) {
-      console.error("Microphone access error:", err);
-      alert(`Не удалось получить доступ к микрофону: ${err.message || 'Разрешите доступ к микрофону в браузере'}`);
+      console.warn("No microphone available or permission denied, joining in listen-only mode:", err);
+      setIsMuted(true);
+      localStreamRef.current = null;
     }
+
+    // Connect Socket.io signaling (works even without microphone!)
+    const socket = io('/', {
+      transports: ['websocket', 'polling'],
+    });
+    socketRef.current = socket;
+
+    setupSocketEvents(socket, targetRoom, !hasMic);
+    setConnected(true);
   }
 
   // Detect speech to illuminate speaking border
@@ -157,12 +159,13 @@ export function App() {
     }
   }
 
-  function setupSocketEvents(socket: Socket, currentRoom: string) {
+  function setupSocketEvents(socket: Socket, currentRoom: string, initialMuted: boolean = false) {
     socket.on('connect', () => {
       socket.emit('join-room', {
         roomId: currentRoom,
         username,
         avatar: myAvatar,
+        isMuted: initialMuted,
       });
     });
 
