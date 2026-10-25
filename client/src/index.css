@@ -545,3 +545,42 @@ body {
     z-index: 25;
   }
 }
+
+/* Volume Popover per Peer */
+.peer-volume-popover {
+  position: absolute;
+  bottom: 38px;
+  right: 8px;
+  background-color: var(--bg-floating);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 8px 10px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  width: 140px;
+  z-index: 10;
+}
+
+/* Modal Dialogs (Discord Style) */
+.modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+  padding: 16px;
+}
+
+.modal-content {
+  background-color: var(--bg-primary);
+  border-radius: 8px;
+  width: 100%;
+  max-width: 440px;
+  padding: 20px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--border-subtle);
+}

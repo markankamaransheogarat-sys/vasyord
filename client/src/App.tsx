@@ -5,6 +5,7 @@ import {
   MicOff,
   Headphones,
   Volume2,
+  Volume1,
   MessageSquare,
   Hash,
   VolumeX,
@@ -17,7 +18,8 @@ import {
   X,
   Play,
   Square,
-  Send
+  Send,
+  Tv
 } from 'lucide-react';
 import './index.css';
 
@@ -41,9 +43,45 @@ interface Message {
   timestamp: string;
 }
 
+interface ServerItem {
+  id: string;
+  name: string;
+  icon: string;
+  channels: { id: string; name: string; type: 'voice' | 'text' }[];
+}
+
+const DEFAULT_SERVERS: ServerItem[] = [
+  {
+    id: 'patsany',
+    name: 'Пацанский сервер',
+    icon: 'VY',
+    channels: [
+      { id: 'general-voice', name: '🎙️ Общий войс', type: 'voice' },
+      { id: 'gaming', name: '🎮 Катка (CS2 / Dota)', type: 'voice' },
+      { id: 'chill', name: '☕ Чилл комната', type: 'voice' },
+      { id: 'fludilka', name: 'флудилка', type: 'text' },
+      { id: 'memes', name: 'мемы-и-скрины', type: 'text' },
+    ],
+  },
+  {
+    id: 'gaming-party',
+    name: 'Dota 2 / CS2 Party',
+    icon: '🎮',
+    channels: [
+      { id: 'dota-lobby', name: '🏆 Дота Рейтинг', type: 'voice' },
+      { id: 'cs-lobby', name: '🔫 CS2 Премьер', type: 'voice' },
+      { id: 'tactic-chat', name: 'тактики-и-смоки', type: 'text' },
+    ],
+  },
+];
+
 export function App() {
   const [username, setUsername] = useState(() => localStorage.getItem('vasyord_user') || `Patsan_${Math.floor(Math.random() * 899 + 100)}`);
+  const [servers, setServers] = useState<ServerItem[]>(DEFAULT_SERVERS);
+  const [activeServerId, setActiveServerId] = useState('patsany');
+  
   const [roomId, setRoomId] = useState('general-voice');
+  const [activeTextChannel, setActiveTextChannel] = useState('fludilka');
   const [connected, setConnected] = useState(false);
   const [peers, setPeers] = useState<Peer[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -52,10 +90,20 @@ export function App() {
   // UI & Mobile state
   const [showChat, setShowChat] = useState(true);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showCreateRoomModal, setShowCreateRoomModal] = useState(false);
+  const [newRoomName, setNewRoomName] = useState('');
+  const [newRoomType, setNewRoomType] = useState<'voice' | 'text'>('voice');
   
-  // Audio Controls
+  // Audio Controls & Volume per peer
   const [isMuted, setIsMuted] = useState(false);
   const [isDeafened, setIsDeafened] = useState(false);
+  const [peerVolumes, setPeerVolumes] = useState<{ [peerId: string]: number }>({});
+  const [openVolumePeerId, setOpenVolumePeerId] = useState<string | null>(null);
+
+  // Screen share
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const screenTrackRef = useRef<MediaStreamTrack | null>(null);
 
   // Voice message recording (Telegram style)
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
@@ -65,6 +113,7 @@ export function App() {
   const socketRef = useRef<Socket | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const peerConnectionsRef = useRef<{ [peerId: string]: RTCPeerConnection }>({});
+  const remoteAudioElementsRef = useRef<{ [peerId: string]: HTMLAudioElement }>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
   // MediaRecorder refs
@@ -74,6 +123,7 @@ export function App() {
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
 
   const myAvatar = `https://api.dicebear.com/7.x/bottts/svg?seed=${username}`;
+  const currentServer = servers.find((s) => s.id === activeServerId) || servers[0];
 
   useEffect(() => {
     localStorage.setItem('vasyord_user', username);
@@ -106,12 +156,11 @@ export function App() {
         hasMic = true;
       }
     } catch (err: any) {
-      console.warn("No microphone available or permission denied, joining in listen-only mode:", err);
+      console.warn("No mic or permission denied, joining listen-only:", err);
       setIsMuted(true);
       localStreamRef.current = null;
     }
 
-    // Connect Socket.io signaling (works even without microphone!)
     const socket = io('/', {
       transports: ['websocket', 'polling'],
     });
@@ -169,7 +218,6 @@ export function App() {
       });
     });
 
-    // Handle existing peers
     socket.on('room-peers', ({ peers: initialPeers, messages: initialMessages }: { peers: Peer[]; messages: Message[] }) => {
       setPeers(initialPeers);
       setMessages(initialMessages);
@@ -179,12 +227,10 @@ export function App() {
       });
     });
 
-    // When someone joins
     socket.on('peer-joined', (newPeer: Peer) => {
       setPeers((prev) => [...prev.filter((p) => p.id !== newPeer.id), newPeer]);
     });
 
-    // WebRTC Signaling: Incoming Offer
     socket.on('signal-offer', async ({ callerPeerId, sdp }) => {
       const pc = createPeerConnection(callerPeerId, false);
       await pc.setRemoteDescription(new RTCSessionDescription(sdp));
@@ -197,7 +243,6 @@ export function App() {
       });
     });
 
-    // WebRTC Signaling: Incoming Answer
     socket.on('signal-answer', async ({ targetPeerId, sdp }) => {
       const pc = peerConnectionsRef.current[targetPeerId];
       if (pc) {
@@ -205,7 +250,6 @@ export function App() {
       }
     });
 
-    // WebRTC Signaling: ICE Candidate
     socket.on('signal-ice-candidate', async ({ senderPeerId, candidate }) => {
       const pc = peerConnectionsRef.current[senderPeerId];
       if (pc && candidate) {
@@ -217,37 +261,35 @@ export function App() {
       }
     });
 
-    // Peer State changes (mute/deaf)
     socket.on('peer-state-updated', ({ peerId, ...updatedState }) => {
       setPeers((prev) =>
         prev.map((p) => (p.id === peerId ? { ...p, ...updatedState } : p))
       );
     });
 
-    // Speaking indicator
     socket.on('peer-speaking', ({ peerId, isSpeaking }) => {
       setPeers((prev) =>
         prev.map((p) => (p.id === peerId ? { ...p, isSpeaking } : p))
       );
     });
 
-    // Chat Message (Text or Voice)
     socket.on('new-message', (msg: Message) => {
       setMessages((prev) => [...prev, msg]);
       setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
     });
 
-    // Peer Left
     socket.on('peer-left', ({ peerId }) => {
       setPeers((prev) => prev.filter((p) => p.id !== peerId));
       if (peerConnectionsRef.current[peerId]) {
         peerConnectionsRef.current[peerId].close();
         delete peerConnectionsRef.current[peerId];
       }
+      if (remoteAudioElementsRef.current[peerId]) {
+        delete remoteAudioElementsRef.current[peerId];
+      }
     });
   }
 
-  // Create WebRTC PeerConnection
   function createPeerConnection(remotePeerId: string, isInitiator: boolean) {
     if (peerConnectionsRef.current[remotePeerId]) {
       return peerConnectionsRef.current[remotePeerId];
@@ -273,7 +315,10 @@ export function App() {
       const audioEl = new Audio();
       audioEl.srcObject = remoteStream;
       audioEl.autoplay = true;
+      const currentVol = peerVolumes[remotePeerId] !== undefined ? peerVolumes[remotePeerId] : 100;
+      audioEl.volume = isDeafened ? 0 : currentVol / 100;
       audioEl.play().catch(console.warn);
+      remoteAudioElementsRef.current[remotePeerId] = audioEl;
     };
 
     pc.onicecandidate = (event) => {
@@ -307,8 +352,14 @@ export function App() {
       localStreamRef.current.getTracks().forEach((t) => t.stop());
       localStreamRef.current = null;
     }
+    if (screenTrackRef.current) {
+      screenTrackRef.current.stop();
+      screenTrackRef.current = null;
+      setIsScreenSharing(false);
+    }
     Object.values(peerConnectionsRef.current).forEach((pc) => pc.close());
     peerConnectionsRef.current = {};
+    remoteAudioElementsRef.current = {};
     setConnected(false);
     setPeers([]);
   }
@@ -322,6 +373,8 @@ export function App() {
         setIsMuted(newMuted);
         socketRef.current?.emit('update-peer-state', { isMuted: newMuted });
       }
+    } else {
+      setIsMuted(!isMuted);
     }
   }
 
@@ -329,10 +382,59 @@ export function App() {
     const nextDeafen = !isDeafened;
     setIsDeafened(nextDeafen);
     if (nextDeafen && !isMuted) toggleMute();
+
+    // Mute all remote audio elements
+    Object.keys(remoteAudioElementsRef.current).forEach((peerId) => {
+      const el = remoteAudioElementsRef.current[peerId];
+      if (el) {
+        const userVol = peerVolumes[peerId] !== undefined ? peerVolumes[peerId] : 100;
+        el.volume = nextDeafen ? 0 : userVol / 100;
+      }
+    });
+
     socketRef.current?.emit('update-peer-state', { isDeafened: nextDeafen });
   }
 
-  // Send Text Message
+  // Adjust volume for specific peer
+  function handleVolumeChange(peerId: string, value: number) {
+    setPeerVolumes((prev) => ({ ...prev, [peerId]: value }));
+    const audioEl = remoteAudioElementsRef.current[peerId];
+    if (audioEl && !isDeafened) {
+      audioEl.volume = Math.max(0, Math.min(1, value / 100));
+    }
+  }
+
+  // Screen share (демонстрация экрана)
+  async function toggleScreenShare() {
+    if (isScreenSharing) {
+      if (screenTrackRef.current) {
+        screenTrackRef.current.stop();
+        screenTrackRef.current = null;
+      }
+      setIsScreenSharing(false);
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+      const screenTrack = stream.getVideoTracks()[0];
+      screenTrackRef.current = screenTrack;
+      setIsScreenSharing(true);
+
+      screenTrack.onended = () => {
+        setIsScreenSharing(false);
+        screenTrackRef.current = null;
+      };
+
+      // Add track to all active peer connections
+      Object.values(peerConnectionsRef.current).forEach((pc) => {
+        pc.addTrack(screenTrack, stream);
+      });
+    } catch (err) {
+      console.warn("Screen share cancelled or failed:", err);
+    }
+  }
+
   function handleSendMessage(e: React.FormEvent) {
     e.preventDefault();
     if (!inputText.trim() || !socketRef.current) return;
@@ -340,7 +442,6 @@ export function App() {
     setInputText('');
   }
 
-  // Telegram-style Voice Message Recorder
   async function startVoiceRecording() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -392,7 +493,6 @@ export function App() {
     }
   }
 
-  // Play audio message
   function togglePlayAudio(msgId: string, url: string) {
     if (currentlyPlayingAudio === msgId) {
       audioPlayerRef.current?.pause();
@@ -414,21 +514,80 @@ export function App() {
     audio.play().catch(console.warn);
   }
 
+  function handleCreateRoom(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newRoomName.trim()) return;
+
+    const newChannel = {
+      id: `${newRoomType}-${Date.now().toString(36)}`,
+      name: newRoomName.trim(),
+      type: newRoomType,
+    };
+
+    setServers((prev) =>
+      prev.map((s) =>
+        s.id === activeServerId
+          ? { ...s, channels: [...s.channels, newChannel] }
+          : s
+      )
+    );
+
+    setNewRoomName('');
+    setShowCreateRoomModal(false);
+
+    if (newRoomType === 'voice') {
+      joinVoiceRoom(newChannel.id);
+    } else {
+      setActiveTextChannel(newChannel.id);
+    }
+  }
+
   return (
     <div className="vasyord-app">
       {/* 1. Server Icons Sidebar */}
       <nav className="servers-sidebar">
-        <div className="server-icon active" title="Vasyord Home">
+        <div
+          className={`server-icon ${activeServerId === 'home' ? 'active' : ''}`}
+          onClick={() => setActiveServerId('patsany')}
+          title="Главная"
+        >
           <Compass size={22} />
         </div>
         <div style={{ width: 28, height: 2, background: 'var(--border-subtle)', borderRadius: 1 }} />
-        <div className="server-icon" title="Пацанский сервер">
-          VY
-        </div>
-        <div className="server-icon" title="Dota 2 / CS2 Party">
-          🎮
-        </div>
-        <div className="server-icon" title="Create Room">
+
+        {servers.map((s) => (
+          <div
+            key={s.id}
+            className={`server-icon ${activeServerId === s.id ? 'active' : ''}`}
+            onClick={() => {
+              setActiveServerId(s.id);
+            }}
+            title={s.name}
+          >
+            {s.icon}
+          </div>
+        ))}
+
+        <div
+          className="server-icon"
+          onClick={() => {
+            const name = prompt("Название нового сервера:");
+            if (name && name.trim()) {
+              const newServer: ServerItem = {
+                id: `server-${Date.now()}`,
+                name: name.trim(),
+                icon: name.trim().slice(0, 2).toUpperCase(),
+                channels: [
+                  { id: `voice-${Date.now()}`, name: '🎙️ Общий войс', type: 'voice' },
+                  { id: `text-${Date.now()}`, name: 'основной-чат', type: 'text' },
+                ],
+              };
+              setServers([...servers, newServer]);
+              setActiveServerId(newServer.id);
+            }
+          }}
+          title="Добавить сервер"
+        >
           <Plus size={18} />
         </div>
       </nav>
@@ -441,49 +600,75 @@ export function App() {
       {/* 2. Channels Sidebar */}
       <aside className={`channels-sidebar ${mobileSidebarOpen ? 'mobile-open' : ''}`}>
         <div className="guild-header">
-          <span>⚡ Vasyord Web</span>
-          <span style={{ fontSize: 10, background: 'var(--online-green)', color: '#fff', padding: '2px 6px', borderRadius: 10, fontWeight: 700 }}>
-            P2P
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {currentServer.name}
           </span>
+          <button
+            className="control-btn"
+            style={{ padding: 4 }}
+            onClick={() => setShowCreateRoomModal(true)}
+            title="Создать канал"
+          >
+            <Plus size={16} />
+          </button>
         </div>
 
         <div className="channels-list">
-          <div className="channel-category">Голосовые комнаты</div>
-
-          <div
-            className={`channel-item ${connected && roomId === 'general-voice' ? 'active' : ''}`}
-            onClick={() => joinVoiceRoom('general-voice')}
-          >
-            <Volume2 size={18} color="var(--online-green)" />
-            <span>🎙️ Общий войс</span>
+          {/* Voice Channels */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingRight: 4 }}>
+            <span className="channel-category">Голосовые комнаты</span>
+            <button
+              style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+              onClick={() => {
+                setNewRoomType('voice');
+                setShowCreateRoomModal(true);
+              }}
+              title="Создать голосовой канал"
+            >
+              <Plus size={14} />
+            </button>
           </div>
 
-          <div
-            className={`channel-item ${connected && roomId === 'gaming' ? 'active' : ''}`}
-            onClick={() => joinVoiceRoom('gaming')}
-          >
-            <Volume2 size={18} color="var(--online-green)" />
-            <span>🎮 Катка (CS2 / Dota)</span>
+          {currentServer.channels
+            .filter((c) => c.type === 'voice')
+            .map((c) => (
+              <div
+                key={c.id}
+                className={`channel-item ${connected && roomId === c.id ? 'active' : ''}`}
+                onClick={() => joinVoiceRoom(c.id)}
+              >
+                <Volume2 size={18} color="var(--online-green)" />
+                <span>{c.name}</span>
+              </div>
+            ))}
+
+          {/* Text Channels */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingRight: 4, marginTop: 14 }}>
+            <span className="channel-category">Текстовые темы</span>
+            <button
+              style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+              onClick={() => {
+                setNewRoomType('text');
+                setShowCreateRoomModal(true);
+              }}
+              title="Создать текстовый канал"
+            >
+              <Plus size={14} />
+            </button>
           </div>
 
-          <div
-            className={`channel-item ${connected && roomId === 'chill' ? 'active' : ''}`}
-            onClick={() => joinVoiceRoom('chill')}
-          >
-            <Volume2 size={18} color="var(--online-green)" />
-            <span>☕ Чилл комната</span>
-          </div>
-
-          <div className="channel-category" style={{ marginTop: 12 }}>Текстовые темы</div>
-
-          <div className="channel-item active">
-            <Hash size={18} />
-            <span>флудилка</span>
-          </div>
-          <div className="channel-item">
-            <Hash size={18} />
-            <span>мемы-и-скрины</span>
-          </div>
+          {currentServer.channels
+            .filter((c) => c.type === 'text')
+            .map((c) => (
+              <div
+                key={c.id}
+                className={`channel-item ${activeTextChannel === c.id ? 'active' : ''}`}
+                onClick={() => setActiveTextChannel(c.id)}
+              >
+                <Hash size={18} />
+                <span>{c.name}</span>
+              </div>
+            ))}
         </div>
 
         {/* User Footer Controls (Discord style) */}
@@ -493,11 +678,8 @@ export function App() {
             <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
               <span
                 style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-header)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer' }}
-                onClick={() => {
-                  const newName = prompt("Введите ваш никнейм:", username);
-                  if (newName && newName.trim()) setUsername(newName.trim());
-                }}
-                title="Нажмите, чтобы сменить ник"
+                onClick={() => setShowSettingsModal(true)}
+                title="Настройки профиля"
               >
                 {username}
               </span>
@@ -507,19 +689,16 @@ export function App() {
             </div>
           </div>
 
-          <button className={`control-btn ${isMuted ? 'active-danger' : ''}`} onClick={toggleMute} title="Заглушить микрофон">
+          <button className={`control-btn ${isMuted ? 'active-danger' : ''}`} onClick={toggleMute} title={isMuted ? "Включить микрофон" : "Заглушить микрофон"}>
             {isMuted ? <MicOff size={18} /> : <Mic size={18} />}
           </button>
-          <button className={`control-btn ${isDeafened ? 'active-danger' : ''}`} onClick={toggleDeafen} title="Заглушить звук">
+          <button className={`control-btn ${isDeafened ? 'active-danger' : ''}`} onClick={toggleDeafen} title={isDeafened ? "Включить звук" : "Заглушить наушники"}>
             {isDeafened ? <VolumeX size={18} /> : <Headphones size={18} />}
           </button>
           <button
             className="control-btn"
-            onClick={() => {
-              const newName = prompt("Сменить никнейм:", username);
-              if (newName && newName.trim()) setUsername(newName.trim());
-            }}
-            title="Сменить ник"
+            onClick={() => setShowSettingsModal(true)}
+            title="Настройки"
           >
             <Settings size={18} />
           </button>
@@ -547,6 +726,16 @@ export function App() {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {connected && (
+              <button
+                className={`control-btn ${isScreenSharing ? 'active' : ''}`}
+                onClick={toggleScreenShare}
+                title={isScreenSharing ? "Остановить демонстрацию" : "Демонстрация экрана"}
+                style={{ gap: 4 }}
+              >
+                <Tv size={17} color={isScreenSharing ? 'var(--online-green)' : 'inherit'} />
+              </button>
+            )}
             <button
               className="control-btn"
               onClick={() => {
@@ -589,17 +778,49 @@ export function App() {
               <div className="peer-name">{username} (Вы)</div>
             </div>
 
-            {/* Remote Peers */}
-            {peers.map((peer) => (
-              <div key={peer.id} className={`peer-card ${peer.isSpeaking ? 'speaking' : ''}`}>
-                <div className="peer-status-icons">
-                  {peer.isMuted && <MicOff size={15} color="var(--danger-red)" />}
-                  {peer.isDeafened && <VolumeX size={15} color="var(--danger-red)" />}
+            {/* Remote Peers with Volume Controls */}
+            {peers.map((peer) => {
+              const currentVol = peerVolumes[peer.id] !== undefined ? peerVolumes[peer.id] : 100;
+              const isVolOpen = openVolumePeerId === peer.id;
+
+              return (
+                <div key={peer.id} className={`peer-card ${peer.isSpeaking ? 'speaking' : ''}`}>
+                  <div className="peer-status-icons">
+                    {peer.isMuted && <MicOff size={15} color="var(--danger-red)" />}
+                    {peer.isDeafened && <VolumeX size={15} color="var(--danger-red)" />}
+                    <button
+                      className="control-btn"
+                      style={{ padding: 2, background: isVolOpen ? 'rgba(0,0,0,0.6)' : 'transparent' }}
+                      onClick={() => setOpenVolumePeerId(isVolOpen ? null : peer.id)}
+                      title="Громкость пользователя"
+                    >
+                      {currentVol === 0 ? <VolumeX size={15} color="var(--danger-red)" /> : currentVol < 50 ? <Volume1 size={15} /> : <Volume2 size={15} />}
+                    </button>
+                  </div>
+
+                  <img src={peer.avatar} alt={peer.username} className="peer-avatar" />
+                  <div className="peer-name">{peer.username}</div>
+
+                  {/* Volume Slider Popover */}
+                  {isVolOpen && (
+                    <div className="peer-volume-popover">
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 4 }}>
+                        <span>Громкость:</span>
+                        <span style={{ fontWeight: 700 }}>{currentVol}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="200"
+                        value={currentVol}
+                        onChange={(e) => handleVolumeChange(peer.id, Number(e.target.value))}
+                        style={{ width: '100%', accentColor: 'var(--bg-accent)', cursor: 'pointer' }}
+                      />
+                    </div>
+                  )}
                 </div>
-                <img src={peer.avatar} alt={peer.username} className="peer-avatar" />
-                <div className="peer-name">{peer.username}</div>
-              </div>
-            ))}
+              );
+            })}
 
             {!connected && (
               <div style={{ gridColumn: '1 / -1', textAlign: 'center', color: 'var(--text-muted)', padding: '20px 10px' }}>
@@ -607,9 +828,9 @@ export function App() {
                 <p style={{ marginTop: 6, fontSize: 13 }}>Подключайтесь и общайтесь с пацанами без задержек 🎙️</p>
                 <button
                   style={{ marginTop: 14, padding: '10px 20px', background: 'var(--bg-accent)', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 14 }}
-                  onClick={() => joinVoiceRoom('general-voice')}
+                  onClick={() => joinVoiceRoom(currentServer.channels.find(c => c.type === 'voice')?.id || 'general-voice')}
                 >
-                  ⚡ Подключиться в «Общий войс»
+                  ⚡ Подключиться в голосовой канал
                 </button>
               </div>
             )}
@@ -619,7 +840,7 @@ export function App() {
           {showChat && (
             <aside className="chat-drawer">
               <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-header)' }}>Чат комнаты</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-header)' }}>Чат #{roomId}</span>
                 <button
                   className="control-btn"
                   onClick={() => setShowChat(false)}
@@ -644,10 +865,8 @@ export function App() {
                         <span className="message-time">{m.timestamp}</span>
                       </div>
 
-                      {/* Regular text */}
                       {m.text && <div className="message-text">{m.text}</div>}
 
-                      {/* Telegram-style voice message bubble */}
                       {m.audioUrl && (
                         <div className="voice-message-bubble">
                           <button
@@ -704,14 +923,12 @@ export function App() {
                   />
                 )}
 
-                {/* Send text button if typing */}
                 {inputText.trim().length > 0 && (
                   <button type="submit" className="send-btn" title="Отправить сообщение">
                     <Send size={18} color="var(--bg-accent)" />
                   </button>
                 )}
 
-                {/* Telegram-style Voice Message Button */}
                 <button
                   type="button"
                   className={`mic-record-btn ${isRecordingVoice ? 'recording' : ''}`}
@@ -731,6 +948,138 @@ export function App() {
           )}
         </div>
       </main>
+
+      {/* Settings Modal (Discord Style) */}
+      {showSettingsModal && (
+        <div className="modal-backdrop" onClick={() => setShowSettingsModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h2 style={{ fontSize: 18, color: 'var(--text-header)' }}>⚙️ Настройки пользователя</h2>
+              <button className="control-btn" onClick={() => setShowSettingsModal(false)}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
+              <img src={myAvatar} alt="My Avatar" style={{ width: 64, height: 64, borderRadius: 32, background: 'var(--bg-secondary)' }} />
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 12, color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
+                  Никнейм
+                </label>
+                <input
+                  type="text"
+                  className="chat-input"
+                  style={{ marginTop: 6 }}
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                style={{ padding: '8px 16px', background: 'var(--bg-accent)', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}
+                onClick={() => setShowSettingsModal(false)}
+              >
+                Сохранить
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Channel Modal */}
+      {showCreateRoomModal && (
+        <div className="modal-backdrop" onClick={() => setShowCreateRoomModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h2 style={{ fontSize: 18, color: 'var(--text-header)' }}>Создать канал</h2>
+              <button className="control-btn" onClick={() => setShowCreateRoomModal(false)}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateRoom}>
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ fontSize: 12, color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
+                  Тип канала
+                </label>
+                <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+                  <button
+                    type="button"
+                    style={{
+                      flex: 1,
+                      padding: '10px',
+                      borderRadius: 6,
+                      border: newRoomType === 'voice' ? '2px solid var(--bg-accent)' : '1px solid var(--border-subtle)',
+                      background: 'var(--bg-secondary)',
+                      color: 'var(--text-header)',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      fontWeight: 600,
+                    }}
+                    onClick={() => setNewRoomType('voice')}
+                  >
+                    <Volume2 size={18} color="var(--online-green)" /> Голосовой
+                  </button>
+                  <button
+                    type="button"
+                    style={{
+                      flex: 1,
+                      padding: '10px',
+                      borderRadius: 6,
+                      border: newRoomType === 'text' ? '2px solid var(--bg-accent)' : '1px solid var(--border-subtle)',
+                      background: 'var(--bg-secondary)',
+                      color: 'var(--text-header)',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      fontWeight: 600,
+                    }}
+                    onClick={() => setNewRoomType('text')}
+                  >
+                    <Hash size={18} /> Текстовый
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 20 }}>
+                <label style={{ fontSize: 12, color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
+                  Название канала
+                </label>
+                <input
+                  type="text"
+                  className="chat-input"
+                  style={{ marginTop: 6 }}
+                  placeholder={newRoomType === 'voice' ? 'Новая комната...' : 'новый-чат...'}
+                  value={newRoomName}
+                  onChange={(e) => setNewRoomName(e.target.value)}
+                  autoFocus
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                <button
+                  type="button"
+                  style={{ padding: '8px 16px', background: 'transparent', color: 'var(--text-muted)', border: 'none', cursor: 'pointer' }}
+                  onClick={() => setShowCreateRoomModal(false)}
+                >
+                  Отмена
+                </button>
+                <button
+                  type="submit"
+                  style={{ padding: '8px 16px', background: 'var(--bg-accent)', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}
+                >
+                  Создать
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
