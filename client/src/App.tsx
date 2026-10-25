@@ -133,6 +133,14 @@ export function App() {
     localStorage.setItem('vasyord_user', username);
   }, [username]);
 
+  // Auto-connect to chat and room on initial load
+  useEffect(() => {
+    joinVoiceRoom('general-voice');
+    return () => {
+      leaveVoiceRoom();
+    };
+  }, []);
+
   // Connect socket and audio room
   async function joinVoiceRoom(targetRoom: string) {
     if (connected && roomId === targetRoom) return;
