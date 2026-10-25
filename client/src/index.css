@@ -538,9 +538,9 @@ body {
   /* Chat drawer full overlay on mobile */
   .chat-drawer {
     position: absolute;
-    top: 0;
+    top: 48px;
     right: 0;
-    bottom: 0;
+    bottom: 54px;
     width: 100%;
     z-index: 25;
   }

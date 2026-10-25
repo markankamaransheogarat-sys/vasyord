@@ -208,6 +208,37 @@ export function App() {
     }
   }
 
+  // Play authentic ICQ "Uh-oh!" incoming message sound via Web Audio synthesis
+  function playIcqSound() {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = 'triangle';
+      // Uh-oh dual tone frequency modulation
+      osc.frequency.setValueAtTime(320, now);
+      osc.frequency.exponentialRampToValueAtTime(260, now + 0.12);
+      osc.frequency.setValueAtTime(440, now + 0.15);
+      osc.frequency.exponentialRampToValueAtTime(360, now + 0.32);
+
+      gain.gain.setValueAtTime(0.25, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(now);
+      osc.stop(now + 0.36);
+    } catch (e) {
+      console.warn("Could not play ICQ sound:", e);
+    }
+  }
+
   function setupSocketEvents(socket: Socket, currentRoom: string, initialMuted: boolean = false) {
     socket.on('connect', () => {
       socket.emit('join-room', {
@@ -276,6 +307,11 @@ export function App() {
     socket.on('new-message', (msg: Message) => {
       setMessages((prev) => [...prev, msg]);
       setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+
+      // Play ICQ incoming sound if message is from someone else
+      if (socketRef.current && msg.senderId !== socketRef.current.id) {
+        playIcqSound();
+      }
     });
 
     socket.on('peer-left', ({ peerId }) => {
