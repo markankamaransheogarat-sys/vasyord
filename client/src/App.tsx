@@ -346,6 +346,10 @@ export function App() {
         delete peerConnectionsRef.current[peerId];
       }
       if (remoteAudioElementsRef.current[peerId]) {
+        try {
+          remoteAudioElementsRef.current[peerId].pause();
+          remoteAudioElementsRef.current[peerId].remove();
+        } catch {}
         delete remoteAudioElementsRef.current[peerId];
       }
     });
@@ -358,9 +362,19 @@ export function App() {
 
     const pc = new RTCPeerConnection({
       iceServers: [
+        { urls: 'stun:89.22.235.176:3478' },
+        {
+          urls: [
+            'turn:89.22.235.176:3478?transport=udp',
+            'turn:89.22.235.176:3478?transport=tcp',
+          ],
+          username: 'vasyord',
+          credential: 'supersecretturnpass2026',
+        },
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
       ],
+      iceCandidatePoolSize: 10,
     });
 
     peerConnectionsRef.current[remotePeerId] = pc;
@@ -373,13 +387,34 @@ export function App() {
 
     pc.ontrack = (event) => {
       const [remoteStream] = event.streams;
-      const audioEl = new Audio();
+      let audioEl = remoteAudioElementsRef.current[remotePeerId];
+      if (!audioEl) {
+        audioEl = document.createElement('audio');
+        audioEl.id = 'remote-audio-' + remotePeerId;
+        audioEl.autoplay = true;
+        (audioEl as any).playsInline = true;
+        document.body.appendChild(audioEl);
+        remoteAudioElementsRef.current[remotePeerId] = audioEl;
+      }
       audioEl.srcObject = remoteStream;
-      audioEl.autoplay = true;
       const currentVol = peerVolumes[remotePeerId] !== undefined ? peerVolumes[remotePeerId] : 100;
       audioEl.volume = isDeafened ? 0 : currentVol / 100;
-      audioEl.play().catch(console.warn);
-      remoteAudioElementsRef.current[remotePeerId] = audioEl;
+      
+      const playPromise = audioEl.play();
+      if (playPromise !== undefined) {
+        playPromise.catch((err) => {
+          console.warn('[Vasyord Audio] Autoplay blocked, waiting for user gesture:', err);
+          const resumeAudio = () => {
+            audioEl?.play().catch(console.warn);
+            window.removeEventListener('click', resumeAudio);
+            window.removeEventListener('keydown', resumeAudio);
+            window.removeEventListener('touchstart', resumeAudio);
+          };
+          window.addEventListener('click', resumeAudio, { once: true });
+          window.addEventListener('keydown', resumeAudio, { once: true });
+          window.addEventListener('touchstart', resumeAudio, { once: true });
+        });
+      }
     };
 
     pc.onicecandidate = (event) => {
@@ -420,6 +455,12 @@ export function App() {
     }
     Object.values(peerConnectionsRef.current).forEach((pc) => pc.close());
     peerConnectionsRef.current = {};
+    Object.values(remoteAudioElementsRef.current).forEach((el) => {
+      try {
+        el.pause();
+        el.remove();
+      } catch {}
+    });
     remoteAudioElementsRef.current = {};
     setConnected(false);
     setPeers([]);
