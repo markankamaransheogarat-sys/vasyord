@@ -111,8 +111,8 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Text Chat Message
-  socket.on('send-message', ({ text }) => {
+  // Text or Audio Chat Message
+  socket.on('send-message', ({ text, audioUrl, duration }) => {
     const roomId = socket.roomId;
     if (roomId && rooms[roomId] && rooms[roomId][socket.id]) {
       const peer = rooms[roomId][socket.id];
@@ -121,7 +121,9 @@ io.on('connection', (socket) => {
         senderId: socket.id,
         username: peer.username,
         avatar: peer.avatar,
-        text,
+        text: text || '',
+        audioUrl: audioUrl || null,
+        duration: duration || null,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
 
