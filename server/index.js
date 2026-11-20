@@ -204,6 +204,10 @@ app.get('/health', (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
-server.listen(PORT, () => {
-  console.log(`[Vasyord Server] Running on http://localhost:${PORT}`);
-});
+if (require.main === module) {
+  server.listen(PORT, () => {
+    console.log(`[Vasyord Server] Running on http://localhost:${PORT}`);
+  });
+}
+
+module.exports = { app, server, io, rooms };
